@@ -2,7 +2,7 @@ import sys
 import random
 import math
 import subprocess
-import os # Added for path checking
+import os 
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                                QScrollArea, QStatusBar, QToolBar, QLabel, QFrame, 
                                QSizePolicy, QSpinBox, QDialog, QFormLayout, QDialogButtonBox, 
@@ -17,7 +17,7 @@ from ui_components import ProfileCard
 from worker import Worker
 from settings_manager import SettingsManager 
 
-# --- SETTINGS DIALOG (Updated) ---
+# ... [SETTINGS DIALOG REMAINS THE SAME] ...
 class SettingsDialog(QDialog):
     def __init__(self, current_min, current_max, current_w, current_h, current_url, is_on_top, resize_callback, parent=None):
         super().__init__(parent)
@@ -39,7 +39,6 @@ class SettingsDialog(QDialog):
         """)
         layout = QVBoxLayout(self); layout.setSpacing(15)
         
-        # 1. Randomization
         grp_random = QGroupBox("Search Randomization")
         form_rnd = QFormLayout(grp_random); form_rnd.setSpacing(10)
         def to_mult_3(v): return int(v / 3) * 3
@@ -47,7 +46,6 @@ class SettingsDialog(QDialog):
         self.spin_max = QSpinBox(); self.spin_max.setRange(3, 300); self.spin_max.setSingleStep(3); self.spin_max.setValue(to_mult_3(current_max))
         form_rnd.addRow("Minimum:", self.spin_min); form_rnd.addRow("Maximum:", self.spin_max); layout.addWidget(grp_random)
 
-        # 2. Window Size
         grp_win = QGroupBox("Window Dimensions")
         form_win = QFormLayout(grp_win); form_win.setSpacing(10)
         self.spin_w = QSpinBox(); self.spin_w.setRange(400, 2000); self.spin_w.setSingleStep(10); self.spin_w.setValue(current_w)
@@ -56,7 +54,6 @@ class SettingsDialog(QDialog):
         self.spin_h.valueChanged.connect(self.trigger_resize)
         form_win.addRow("Width (px):", self.spin_w); form_win.addRow("Height (px):", self.spin_h); layout.addWidget(grp_win)
 
-        # 3. Behavior (URL + Always on Top)
         grp_scan = QGroupBox("General & Scanner")
         form_scan = QFormLayout(grp_scan)
         self.edit_url = QLineEdit(current_url)
@@ -74,7 +71,6 @@ class SettingsDialog(QDialog):
         if self.resize_callback: self.resize_callback(self.spin_w.value(), self.spin_h.value())
     
     def get_values(self): 
-        # Returns: (min, max, url, always_on_top)
         return (int(self.spin_min.value()/3)*3, int(self.spin_max.value()/3)*3, self.edit_url.text().strip(), self.chk_ontop.isChecked())
 
 # ... [FILTER DIALOG REMAINS THE SAME] ...
@@ -133,18 +129,18 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Rewards Bot Pro")
         
-        # 1. LOAD SETTINGS
         self.settings = SettingsManager.load()
         self.target_w = self.settings.get("window_width", 850)
         self.target_h = self.settings.get("window_height", 400)
         self.resize(self.target_w, self.target_h)
         
-        # 2. SET LOGO
         if os.path.exists("logo.png"): self.setWindowIcon(QIcon("logo.png"))
         elif os.path.exists("logo.ico"): self.setWindowIcon(QIcon("logo.ico"))
         
-        # 3. APPLY ALWAYS ON TOP (If Saved)
+        # Initialize On-Top Variable
         self.is_always_on_top = self.settings.get("always_on_top", False)
+        
+        # Apply flags immediately, ensuring WindowCloseButtonHint is present
         self.apply_on_top_mode()
 
         self.setStyleSheet(WINDOW_STYLE)
@@ -172,15 +168,15 @@ class MainWindow(QMainWindow):
         self.move(curr.x() - (w - curr.width()), curr.y() - (h - curr.height()))
 
     def apply_on_top_mode(self):
-        """Toggles the WindowStaysOnTopHint flag dynamically."""
-        # Get current flags (removing Top hint to start fresh)
-        flags = self.windowFlags() & ~Qt.WindowStaysOnTopHint
+        """Sets flags while explicitly preserving the Close button."""
+        # Start with standard window + Standard buttons
+        flags = Qt.Window | Qt.WindowCloseButtonHint | Qt.WindowMinimizeButtonHint | Qt.WindowMaximizeButtonHint
         
         if self.is_always_on_top:
             flags |= Qt.WindowStaysOnTopHint
             
         self.setWindowFlags(flags)
-        self.show() # Required to apply flag changes on some OS
+        self.show()
 
     def init_ui(self):
         main_menu = self.menuBar()
@@ -339,13 +335,11 @@ class MainWindow(QMainWindow):
         self.spin_search.setValue(val); self.log(f"Randomized: {val}")
     
     def open_settings_dialog(self):
-        # Pass self.is_always_on_top to dialog
         dlg = SettingsDialog(self.rnd_min, self.rnd_max, self.width(), self.height(), self.scan_url, self.is_always_on_top, self.update_size_anchor, self)
         
         if dlg.exec():
             self.rnd_min, self.rnd_max, self.scan_url, new_top_state = dlg.get_values()
             
-            # Apply On Top Change if modified
             if new_top_state != self.is_always_on_top:
                 self.is_always_on_top = new_top_state
                 self.apply_on_top_mode()
@@ -423,7 +417,7 @@ class MainWindow(QMainWindow):
             "search_count_max": self.rnd_max, 
             "last_search_val": self.spin_search.value(), 
             "scan_url": self.scan_url,
-            "always_on_top": self.is_always_on_top # <--- Save it
+            "always_on_top": self.is_always_on_top 
         })
         self.controller.close(); e.accept()
 
