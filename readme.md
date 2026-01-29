@@ -7,4 +7,4 @@
 # Tesseract download
 > This is required to install for tool to work
 
-[download](https://sourceforge.net/projects/tesseract-ocr.mirror/)
+[download](https://github.com/tesseract-ocr/tesseract/releases/download/5.5.0/tesseract-ocr-w64-setup-5.5.0.20241111.exe)
