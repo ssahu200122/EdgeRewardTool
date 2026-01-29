@@ -10,19 +10,26 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QAction, QIcon, QColor, QFont, QScreen
 
-# Custom Imports
 from controller import ProfileController
 from db_model import MembershipLevel, Profile
 from ui_components import ProfileCard
 from worker import Worker
 from settings_manager import SettingsManager 
 
-# ... [SETTINGS DIALOG REMAINS THE SAME] ...
+# --- FIX 1: SILENCE PRINT STATEMENTS ---
+# This prevents "OSError: Bad file descriptor" crashes in --noconsole mode
+class NullWriter:
+    def write(self, text): pass
+    def flush(self): pass
+
+if sys.stdout is None: sys.stdout = NullWriter()
+if sys.stderr is None: sys.stderr = NullWriter()
+
 class SettingsDialog(QDialog):
-    def __init__(self, current_min, current_max, current_w, current_h, current_url, is_on_top, resize_callback, parent=None):
+    def __init__(self, current_min, current_max, current_w, current_h, current_url, is_on_top, current_font_size, resize_callback, parent=None):
         super().__init__(parent)
         self.setWindowTitle("App Settings")
-        self.resize(400, 400)
+        self.resize(400, 450)
         self.resize_callback = resize_callback 
         self.setStyleSheet("""
             QDialog { background-color: #252526; color: white; }
@@ -46,19 +53,23 @@ class SettingsDialog(QDialog):
         self.spin_max = QSpinBox(); self.spin_max.setRange(3, 300); self.spin_max.setSingleStep(3); self.spin_max.setValue(to_mult_3(current_max))
         form_rnd.addRow("Minimum:", self.spin_min); form_rnd.addRow("Maximum:", self.spin_max); layout.addWidget(grp_random)
 
-        grp_win = QGroupBox("Window Dimensions")
+        grp_win = QGroupBox("Window & Display")
         form_win = QFormLayout(grp_win); form_win.setSpacing(10)
         self.spin_w = QSpinBox(); self.spin_w.setRange(400, 2000); self.spin_w.setSingleStep(10); self.spin_w.setValue(current_w)
         self.spin_w.valueChanged.connect(self.trigger_resize)
         self.spin_h = QSpinBox(); self.spin_h.setRange(200, 1500); self.spin_h.setSingleStep(10); self.spin_h.setValue(current_h)
         self.spin_h.valueChanged.connect(self.trigger_resize)
-        form_win.addRow("Width (px):", self.spin_w); form_win.addRow("Height (px):", self.spin_h); layout.addWidget(grp_win)
+        
+        self.spin_font = QSpinBox(); self.spin_font.setRange(8, 24); self.spin_font.setValue(current_font_size)
+        
+        form_win.addRow("Width (px):", self.spin_w); form_win.addRow("Height (px):", self.spin_h)
+        form_win.addRow("Font Size:", self.spin_font)
+        layout.addWidget(grp_win)
 
         grp_scan = QGroupBox("General & Scanner")
         form_scan = QFormLayout(grp_scan)
         self.edit_url = QLineEdit(current_url)
         form_scan.addRow("Scan URL:", self.edit_url)
-        
         self.chk_ontop = QCheckBox("Keep Window Always on Top")
         self.chk_ontop.setChecked(is_on_top)
         form_scan.addRow("", self.chk_ontop)
@@ -71,9 +82,8 @@ class SettingsDialog(QDialog):
         if self.resize_callback: self.resize_callback(self.spin_w.value(), self.spin_h.value())
     
     def get_values(self): 
-        return (int(self.spin_min.value()/3)*3, int(self.spin_max.value()/3)*3, self.edit_url.text().strip(), self.chk_ontop.isChecked())
+        return (int(self.spin_min.value()/3)*3, int(self.spin_max.value()/3)*3, self.edit_url.text().strip(), self.chk_ontop.isChecked(), self.spin_font.value())
 
-# ... [FILTER DIALOG REMAINS THE SAME] ...
 class FilterDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -96,7 +106,6 @@ class FilterDialog(QDialog):
         btns.accepted.connect(self.accept); btns.rejected.connect(self.reject); layout.addWidget(btns)
     def get_range(self): return self.spin_min.value(), self.spin_max.value()
 
-# --- THEME ---
 WINDOW_STYLE = """
     QMainWindow { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1e1e1e, stop:1 #181818); }
     QMenuBar { background-color: #2b2b2b; color: #ddd; }
@@ -128,19 +137,15 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Rewards Bot Pro")
-        
         self.settings = SettingsManager.load()
         self.target_w = self.settings.get("window_width", 850)
         self.target_h = self.settings.get("window_height", 400)
         self.resize(self.target_w, self.target_h)
-        
         if os.path.exists("logo.png"): self.setWindowIcon(QIcon("logo.png"))
         elif os.path.exists("logo.ico"): self.setWindowIcon(QIcon("logo.ico"))
         
-        # Initialize On-Top Variable
         self.is_always_on_top = self.settings.get("always_on_top", False)
-        
-        # Apply flags immediately, ensuring WindowCloseButtonHint is present
+        self.current_font_size = self.settings.get("font_size", 13)
         self.apply_on_top_mode()
 
         self.setStyleSheet(WINDOW_STYLE)
@@ -168,15 +173,9 @@ class MainWindow(QMainWindow):
         self.move(curr.x() - (w - curr.width()), curr.y() - (h - curr.height()))
 
     def apply_on_top_mode(self):
-        """Sets flags while explicitly preserving the Close button."""
-        # Start with standard window + Standard buttons
         flags = Qt.Window | Qt.WindowCloseButtonHint | Qt.WindowMinimizeButtonHint | Qt.WindowMaximizeButtonHint
-        
-        if self.is_always_on_top:
-            flags |= Qt.WindowStaysOnTopHint
-            
-        self.setWindowFlags(flags)
-        self.show()
+        if self.is_always_on_top: flags |= Qt.WindowStaysOnTopHint
+        self.setWindowFlags(flags); self.show()
 
     def init_ui(self):
         main_menu = self.menuBar()
@@ -211,26 +210,14 @@ class MainWindow(QMainWindow):
         self.act_stop = QAction("⏹ Stop", self); self.act_stop.triggered.connect(self.on_stop_clicked); self.toolbar.addAction(self.act_stop)
         
         self.toolbar.addSeparator()
-        
-        self.act_kill = QAction("❌ Close All", self)
-        self.act_kill.setToolTip("Force Close All Edge Browsers")
-        self.act_kill.triggered.connect(self.on_kill_clicked)
-        self.toolbar.addAction(self.act_kill)
-
-        self.act_detect = QAction("🔍 Auto Detect", self)
-        self.act_detect.setToolTip("Scan PC for new Edge Profiles")
-        self.act_detect.triggered.connect(self.on_detect_clicked)
-        self.toolbar.addAction(self.act_detect)
+        self.act_kill = QAction("❌ Close All", self); self.act_kill.setToolTip("Force Close All Edge Browsers"); self.act_kill.triggered.connect(self.on_kill_clicked); self.toolbar.addAction(self.act_kill)
+        self.act_detect = QAction("🔍 Auto Detect", self); self.act_detect.setToolTip("Scan PC for new Edge Profiles"); self.act_detect.triggered.connect(self.on_detect_clicked); self.toolbar.addAction(self.act_detect)
 
         self.toolbar.addSeparator()
         self.toolbar.addWidget(QLabel("Parallel:"))
-        self.spin_batch = QSpinBox(); self.spin_batch.setRange(1, 15); self.spin_batch.setToolTip("Parallel Browsers")
-        self.spin_batch.setValue(self.settings.get("parallel_browsers", 5))
-        self.toolbar.addWidget(self.spin_batch)
+        self.spin_batch = QSpinBox(); self.spin_batch.setRange(1, 15); self.spin_batch.setToolTip("Parallel Browsers"); self.spin_batch.setValue(self.settings.get("parallel_browsers", 5)); self.toolbar.addWidget(self.spin_batch)
         self.toolbar.addWidget(QLabel("Searches:"))
-        self.spin_search = QSpinBox(); self.spin_search.setRange(3, 300); self.spin_search.setSingleStep(3)
-        self.spin_search.setToolTip("Searches per profile")
-        self.toolbar.addWidget(self.spin_search)
+        self.spin_search = QSpinBox(); self.spin_search.setRange(3, 300); self.spin_search.setSingleStep(3); self.spin_search.setToolTip("Searches per profile"); self.toolbar.addWidget(self.spin_search)
         empty = QWidget(); empty.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding); self.toolbar.addWidget(empty)
         
         central = QWidget(); self.setCentralWidget(central)
@@ -244,39 +231,26 @@ class MainWindow(QMainWindow):
         self.log("Ready.")
 
     def on_kill_clicked(self):
-        try:
-            self.log("Closing all browsers...")
-            subprocess.run(["taskkill", "/IM", "msedge.exe", "/F"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            self.log("All Edge instances closed.")
+        try: subprocess.run(["taskkill", "/IM", "msedge.exe", "/F"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); self.log("All Edge instances closed.")
         except Exception as e: self.log(f"Error closing: {e}")
 
     def on_detect_clicked(self):
         self.log("Scanning for new profiles...")
         count = self.controller.auto_detect_profiles()
-        if count > 0:
-            self.log(f"Found {count} new profiles! Reloading...")
-            self.load_profile_data()
-            QMessageBox.information(self, "Scan Complete", f"Successfully added {count} new profiles.")
-        else:
-            self.log("No new profiles found.")
-            QMessageBox.information(self, "Scan Complete", "No new profiles found in Edge User Data folder.")
+        if count > 0: self.log(f"Found {count} new profiles! Reloading..."); self.load_profile_data(); QMessageBox.information(self, "Scan Complete", f"Successfully added {count} new profiles.")
+        else: self.log("No new profiles found."); QMessageBox.information(self, "Scan Complete", "No new profiles found.")
 
     def set_launch_active_style(self, active=True):
         widget = self.toolbar.widgetForAction(self.act_launch)
-        if not widget: return
-        if active: widget.setStyleSheet("QToolButton { background-color: #2e7d32; color: white; border: 1px solid #1b5e20; } QToolButton:hover { background-color: #388e3c; }")
-        else: widget.setStyleSheet("")
+        if widget: widget.setStyleSheet("QToolButton { background-color: #2e7d32; color: white; border: 1px solid #1b5e20; } QToolButton:hover { background-color: #388e3c; }" if active else "")
 
     def launch_single_profile(self, profile):
         self.log(f"Launching {profile.name}...")
-        try:
-            cmd = f'start msedge --profile-directory="{profile.edge_profile_directory}" "{self.scan_url}"'
-            subprocess.Popen(cmd, shell=True)
+        try: subprocess.Popen(f'start msedge --start-maximized --profile-directory="{profile.edge_profile_directory}" "{self.scan_url}"', shell=True)
         except Exception as e: self.log(f"Error launching: {e}")
 
     def update_selection_counter(self):
-        total = len(self.cards); selected = sum(1 for c in self.cards.values() if c.checkbox.isChecked())
-        self.lbl_selection_status.setText(f"Selected: {selected} / {total}")
+        total = len(self.cards); selected = sum(1 for c in self.cards.values() if c.checkbox.isChecked()); self.lbl_selection_status.setText(f"Selected: {selected} / {total}")
     def apply_selection(self, mode):
         for pid, card in self.cards.items():
             cb = card.checkbox; cb.blockSignals(True)
@@ -311,15 +285,14 @@ class MainWindow(QMainWindow):
         for i in range(num_batches):
             batch_num = i + 1; start_idx = i * batch_size + 1; end_idx = min((i + 1) * batch_size, total_profiles)
             action = QAction(f"Batch {batch_num} ({start_idx}-{end_idx})", self)
-            action.triggered.connect(lambda checked=False, b_idx=i: self.select_batch_index(b_idx))
-            self.batch_menu.addAction(action)
+            action.triggered.connect(lambda checked=False, b_idx=i: self.select_batch_index(b_idx)); self.batch_menu.addAction(action)
     def select_batch_index(self, batch_index):
         batch_size = self.spin_batch.value(); all_ids = list(self.cards.keys()); start_idx = batch_index * batch_size; end_idx = start_idx + batch_size
         for c in self.cards.values(): c.checkbox.blockSignals(True); c.checkbox.setChecked(False); c.checkbox.blockSignals(False)
         for i in range(start_idx, min(end_idx, len(all_ids))): self.cards[all_ids[i]].checkbox.setChecked(True)
         self.update_selection_counter(); self.log(f"Selected Batch {batch_index + 1}")
     def open_filter_dialog(self):
-        dlg = FilterDialog(self)
+        dlg = FilterDialog(self); 
         if dlg.exec():
             min_p, max_p = dlg.get_range()
             for pid, card in self.cards.items():
@@ -335,28 +308,34 @@ class MainWindow(QMainWindow):
         self.spin_search.setValue(val); self.log(f"Randomized: {val}")
     
     def open_settings_dialog(self):
-        dlg = SettingsDialog(self.rnd_min, self.rnd_max, self.width(), self.height(), self.scan_url, self.is_always_on_top, self.update_size_anchor, self)
-        
+        dlg = SettingsDialog(self.rnd_min, self.rnd_max, self.width(), self.height(), self.scan_url, self.is_always_on_top, self.current_font_size, self.update_size_anchor, self)
         if dlg.exec():
-            self.rnd_min, self.rnd_max, self.scan_url, new_top_state = dlg.get_values()
-            
+            self.rnd_min, self.rnd_max, self.scan_url, new_top_state, new_font = dlg.get_values()
             if new_top_state != self.is_always_on_top:
                 self.is_always_on_top = new_top_state
                 self.apply_on_top_mode()
-                
+            
+            if new_font != self.current_font_size:
+                self.current_font_size = new_font
+                self.load_profile_data() 
+            
             self.randomize_search_box()
 
     def load_profile_data(self):
         while self.cards_layout.count():
             item = self.cards_layout.takeAt(0)
             widget = item.widget()
-            if widget: widget.deleteLater()
-        self.cards.clear(); profs = self.controller.get_all_profiles()
+            if widget:
+                widget.deleteLater()
+        self.cards.clear()
+        profs = self.controller.get_all_profiles()
         for p in profs:
-            c = ProfileCard(p); c.membership_changed.connect(self.update_membership_in_db)
+            c = ProfileCard(p, self.current_font_size)
+            c.membership_changed.connect(self.update_membership_in_db)
             c.checkbox.toggled.connect(self.update_selection_counter)
             c.launch_requested.connect(self.launch_single_profile)
-            self.cards_layout.addWidget(c); self.cards[p.id] = c
+            self.cards_layout.addWidget(c)
+            self.cards[p.id] = c
         self.update_selection_counter()
 
     def update_membership_in_db(self, pid, lvl):
@@ -372,8 +351,7 @@ class MainWindow(QMainWindow):
             if not self.launch_ids: self.log("No selection!"); return
             self.set_launch_active_style(True)
         start = self.launch_batch_index * batch_size; end = start + batch_size; current_batch_ids = self.launch_ids[start:end]
-        if not current_batch_ids:
-            self.reset_launch_state(); self.log("All batches finished."); return
+        if not current_batch_ids: self.reset_launch_state(); self.log("All batches finished."); return
         self.log(f"Launching Batch {self.launch_batch_index + 1}...")
         self.worker = Worker("launch", current_batch_ids, batch_size, self.spin_search.value(), scan_url=self.scan_url)
         self.worker.log_signal.connect(self.log); self.worker.finished_signal.connect(self.on_batch_launched); self.worker.start()
@@ -407,17 +385,14 @@ class MainWindow(QMainWindow):
         if pid in self.cards: self.cards[pid].points_label.setText(f"{pts:,}")
     def on_worker_finished(self): self.log("Done."); self.act_start.setEnabled(True); self.act_scan.setEnabled(True); self.act_launch.setEnabled(True); self.worker = None
     
-    # --- SAVE NEW STATE ON CLOSE ---
     def closeEvent(self, e):
         SettingsManager.save({
-            "window_width": self.width(), 
-            "window_height": self.height(), 
+            "window_width": self.width(), "window_height": self.height(), 
             "parallel_browsers": self.spin_batch.value(), 
-            "search_count_min": self.rnd_min, 
-            "search_count_max": self.rnd_max, 
-            "last_search_val": self.spin_search.value(), 
-            "scan_url": self.scan_url,
-            "always_on_top": self.is_always_on_top 
+            "search_count_min": self.rnd_min, "search_count_max": self.rnd_max, 
+            "last_search_val": self.spin_search.value(), "scan_url": self.scan_url,
+            "always_on_top": self.is_always_on_top,
+            "font_size": self.current_font_size 
         })
         self.controller.close(); e.accept()
 

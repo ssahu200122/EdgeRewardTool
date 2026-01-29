@@ -1,10 +1,11 @@
 {
     "window_width": 867,
-    "window_height": 340,
+    "window_height": 342,
     "parallel_browsers": 5,
     "search_count_min": 6,
     "search_count_max": 24,
     "last_search_val": 6,
     "scan_url": "https://rewards.bing.com/",
-    "always_on_top": true
+    "always_on_top": true,
+    "font_size": 12
 }

@@ -6,12 +6,28 @@ import pyautogui
 import pytesseract
 import re
 import random
+import os
+import sys
 import pygetwindow as gw
 from PySide6.QtCore import QThread, Signal
 from db_model import Session, Profile
 
-# CONFIGURATION
-# pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+# --- TESSERACT CONFIG ---
+def setup_tesseract():
+    possible_paths = [
+        r'C:\Program Files\Tesseract-OCR\tesseract.exe',
+        r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
+        os.path.join(os.getenv('LOCALAPPDATA'), r'Tesseract-OCR\tesseract.exe')
+    ]
+    if hasattr(sys, '_MEIPASS'):
+        possible_paths.append(os.path.join(sys._MEIPASS, 'Tesseract-OCR', 'tesseract.exe'))
+    for path in possible_paths:
+        if os.path.exists(path):
+            pytesseract.pytesseract.tesseract_cmd = path
+            return True
+    return False
+
+setup_tesseract()
 
 class Worker(QThread):
     log_signal = Signal(str)            
@@ -26,67 +42,63 @@ class Worker(QThread):
         self.search_count = search_count
         self.scan_url = scan_url
         self.is_running = True
-        
-        self.word_list = [
-            "apple", "banana", "cherry", "date", "fig", "grape", "kiwi", "lemon", "mango",
-            "weather", "news", "define", "history", "tech", "python", "film", "game", "code",
-            "space", "robot", "ai", "physics", "math", "biology", "chemistry", "stars",
-            "galaxy", "universe", "planet", "solar", "energy", "power", "light", "speed",
-            "sound", "music", "art", "design", "money", "finance", "stock", "market"
-        ]
+        self.word_list = ["apple", "banana", "tech", "python", "finance", "news", "weather", "money"]
 
     def run(self):
-        session = Session()
-        all_profiles = []
-        for p_id in self.selected_ids:
-            p = session.get(Profile, p_id)
-            if p: all_profiles.append(p)
+        try:
+            session = Session()
+            all_profiles = []
+            for p_id in self.selected_ids:
+                p = session.get(Profile, p_id)
+                if p: all_profiles.append(p)
 
-        self.log_signal.emit(f"Starting {self.mode.upper()}. Total: {len(all_profiles)}")
-        batches = [all_profiles[i:i + self.batch_size] for i in range(0, len(all_profiles), self.batch_size)]
+            self.log_signal.emit(f"Starting {self.mode.upper()}. Total: {len(all_profiles)}")
+            batches = [all_profiles[i:i + self.batch_size] for i in range(0, len(all_profiles), self.batch_size)]
 
-        for i, batch in enumerate(batches):
-            if not self.is_running: break
-            self.log_signal.emit(f"--- Batch {i+1}/{len(batches)} ({len(batch)} profiles) ---")
-            
-            if self.mode == "scan":
-                self.run_sequential_scan(batch, session)
-                self.close_all_browsers()
-                time.sleep(2)
-            
-            elif self.mode == "start":
-                self.run_parallel_searches(batch)
-                self.close_all_browsers()
-                time.sleep(2)
-            
-            elif self.mode == "launch":
-                # NEW LAUNCH MODE
-                self.run_batch_launch(batch)
-                # Note: We do NOT close browsers in launch mode
-                # Wait a bit before next batch to avoid CPU spike
-                if i < len(batches) - 1:
-                    self.log_signal.emit("Waiting 5s before next batch...")
-                    time.sleep(5)
+            for i, batch in enumerate(batches):
+                if not self.is_running: break
+                self.log_signal.emit(f"--- Batch {i+1}/{len(batches)} ({len(batch)} profiles) ---")
+                
+                if self.mode == "scan":
+                    self.run_sequential_scan(batch, session)
+                    self.close_all_browsers()
+                    time.sleep(2)
+                
+                elif self.mode == "start":
+                    self.run_parallel_searches(batch)
+                    self.close_all_browsers()
+                    time.sleep(2)
+                
+                elif self.mode == "launch":
+                    self.run_batch_launch(batch)
+                    if i < len(batches) - 1:
+                        self.log_signal.emit("Waiting 5s before next batch...")
+                        time.sleep(5)
 
-        session.close()
-        self.log_signal.emit("All Batches Complete.")
-        self.finished_signal.emit()
+            session.close()
+            self.log_signal.emit("All Batches Complete.")
+        
+        except Exception as e:
+            self.log_signal.emit(f"Worker Error: {str(e)}")
+        
+        finally:
+            self.finished_signal.emit()
 
+    # ... [Keep your existing methods: run_batch_launch, run_parallel_searches, run_sequential_scan, etc.] ...
+    # IMPORTANT: Ensure NO 'print()' statements are in the methods below. Use self.log_signal.emit() or nothing.
+    
     def run_batch_launch(self, batch):
-        """Launches profiles to the scan URL without closing them."""
         self.log_signal.emit("Launching browsers...")
         for profile in batch:
             if not self.is_running: break
-            # Launch with URL
-            cmd = f'start msedge --profile-directory="{profile.edge_profile_directory}" "{self.scan_url}"'
+            cmd = f'start msedge --start-maximized --profile-directory="{profile.edge_profile_directory}" "{self.scan_url}"'
             subprocess.Popen(cmd, shell=True)
-            # Stagger slighty so windows don't overlap perfectly
             time.sleep(1)
 
     def run_parallel_searches(self, batch):
         self.log_signal.emit("Launching browsers...")
         for profile in batch:
-            cmd = f'start msedge --profile-directory="{profile.edge_profile_directory}"'
+            cmd = f'start msedge --start-maximized --profile-directory="{profile.edge_profile_directory}"'
             subprocess.Popen(cmd, shell=True)
             time.sleep(0.5) 
         
@@ -110,7 +122,6 @@ class Worker(QThread):
                     pyautogui.write(word)
                     pyautogui.press('enter')
                     time.sleep(1)
-                    if len(windows) <= 3: time.sleep(1.5)
                 except Exception: pass 
             self.log_signal.emit(f"Batch Progress: {i+1}/{self.search_count}")
 
@@ -119,19 +130,28 @@ class Worker(QThread):
             if not self.is_running: break
             self.log_signal.emit(f"Scanning: {profile.name}")
             
-            cmd = f'start msedge --profile-directory="{profile.edge_profile_directory}"'
+            cmd = f'start msedge --start-maximized --profile-directory="{profile.edge_profile_directory}"'
             subprocess.Popen(cmd, shell=True)
-            time.sleep(3)
-            
-            self.navigate_to_url(self.scan_url)
             time.sleep(4)
             
-            points = self.capture_points_ocr()
-            if points:
-                profile.available_points = points
+            self.navigate_to_url(self.scan_url)
+            self.log_signal.emit(f"Waiting for points...")
+            found_points = None
+            for attempt in range(15):
+                if not self.is_running: break
+                points = self.capture_points_ocr()
+                if points is not None:
+                    found_points = points
+                    break
+                time.sleep(2)
+            
+            if found_points is not None:
+                profile.available_points = found_points
                 session.commit()
-                self.card_update_signal.emit(profile.id, points)
-                self.log_signal.emit(f"[{profile.name}] Updated: {points}")
+                self.card_update_signal.emit(profile.id, found_points)
+                self.log_signal.emit(f"[{profile.name}] Success: {found_points}")
+            else:
+                self.log_signal.emit(f"[{profile.name}] Failed: Timed out")
             
             self.close_all_browsers() 
             time.sleep(1)
@@ -155,6 +175,8 @@ class Worker(QThread):
             match = re.search(r"Available points[^\d]*(\d[\d,]*)", text, re.IGNORECASE)
             if match: return int(match.group(1).replace(",", ""))
             return None
-        except: return None
+        except Exception:
+            # DO NOT PRINT HERE
+            return None
 
     def stop(self): self.is_running = False
