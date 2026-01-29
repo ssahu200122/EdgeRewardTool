@@ -2,16 +2,11 @@ from PySide6.QtWidgets import (QWidget, QHBoxLayout, QLabel, QCheckBox, QFrame, 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QCursor, QFont
 
-# Base64 PNG Checkmark
-B64_DATA = "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAY0lEQVQ4T2NkoBAwUqifgWoG/P/P8J+QOBPDf0D8n4H0AAsjAxTAxLBzcHgVw41fd4A0IzY3EJMjjjCAMCM2N1BCCMiph2fAy6878JmH1wyqRPS0Hzm8CImR52cDAwMDw38AZmAk53669KAAAAAASUVORK5CYII="
-CHECKMARK_PNG = f"url('data:image/png;base64,{B64_DATA}')"
-
 class ClickableLabel(QLabel):
     clicked = Signal()
     
     def __init__(self, text="", parent=None):
         super().__init__(text, parent)
-        # --- FIX: Enable Hover for the Label ---
         self.setAttribute(Qt.WA_Hover)
 
     def mousePressEvent(self, event):
@@ -55,12 +50,11 @@ class ProfileCard(QWidget):
                 background-color: #2b2b2b; 
             }}
             QCheckBox::indicator:hover {{ border-color: #888; }}
+            
+            /* REMOVED IMAGE - NOW USES SIMPLE BLUE SQUARE */
             QCheckBox::indicator:checked {{ 
                 background-color: #0e639c; 
                 border: 2px solid #0e639c; 
-                background-image: {CHECKMARK_PNG}; 
-                background-position: center; 
-                background-repeat: no-repeat; 
             }}
         """)
         
@@ -88,7 +82,7 @@ class ProfileCard(QWidget):
         self.email_label.setCursor(QCursor(Qt.PointingHandCursor))
         self.email_label.clicked.connect(self.request_launch)
         
-        # --- FIX: Specific Hover Style for Email ---
+        # Specific Hover Style for Email
         self.email_label.setStyleSheet("""
             QLabel { 
                 color: #888888; 

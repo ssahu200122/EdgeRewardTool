@@ -10,9 +10,10 @@ import os
 import sys
 import pygetwindow as gw
 from PySide6.QtCore import QThread, Signal
-from db_model import Session, Profile
+from db_model import Session, Profile, MembershipLevel
 
-# --- TESSERACT CONFIG ---
+from wonderwords import RandomWord
+
 def setup_tesseract():
     possible_paths = [
         r'C:\Program Files\Tesseract-OCR\tesseract.exe',
@@ -31,18 +32,19 @@ setup_tesseract()
 
 class Worker(QThread):
     log_signal = Signal(str)            
-    card_update_signal = Signal(int, int) 
+    card_update_signal = Signal(int, int, str) 
     finished_signal = Signal()          
 
-    def __init__(self, mode, selected_ids, batch_size=5, search_count=30, scan_url="https://rewards.bing.com/pointsbreakdown"):
+    def __init__(self, mode, selected_ids, batch_size=5, search_count=30, scan_url="https://rewards.bing.com/pointsbreakdown", update_after=True):
         super().__init__()
         self.mode = mode
         self.selected_ids = selected_ids
         self.batch_size = batch_size
-        self.search_count = search_count
+        self.search_count = search_count 
         self.scan_url = scan_url
+        self.update_after = update_after 
         self.is_running = True
-        self.word_list = ["apple", "banana", "tech", "python", "finance", "news", "weather", "money"]
+        self.r = RandomWord()
 
     def run(self):
         try:
@@ -62,12 +64,18 @@ class Worker(QThread):
                 if self.mode == "scan":
                     self.run_sequential_scan(batch, session)
                     self.close_all_browsers()
-                    time.sleep(2)
+                    time.sleep(1)
                 
                 elif self.mode == "start":
                     self.run_parallel_searches(batch)
                     self.close_all_browsers()
-                    time.sleep(2)
+                    time.sleep(1)
+                    
+                    if self.is_running and self.update_after:
+                        self.log_signal.emit("Searches finished. Verifying details...")
+                        self.run_sequential_scan(batch, session)
+                        self.close_all_browsers()
+                        time.sleep(1)
                 
                 elif self.mode == "launch":
                     self.run_batch_launch(batch)
@@ -84,9 +92,6 @@ class Worker(QThread):
         finally:
             self.finished_signal.emit()
 
-    # ... [Keep your existing methods: run_batch_launch, run_parallel_searches, run_sequential_scan, etc.] ...
-    # IMPORTANT: Ensure NO 'print()' statements are in the methods below. Use self.log_signal.emit() or nothing.
-    
     def run_batch_launch(self, batch):
         self.log_signal.emit("Launching browsers...")
         for profile in batch:
@@ -96,6 +101,10 @@ class Worker(QThread):
             time.sleep(1)
 
     def run_parallel_searches(self, batch):
+        self.log_signal.emit("Cleaning up previous windows...")
+        self.close_all_browsers()
+        time.sleep(2) 
+
         self.log_signal.emit("Launching browsers...")
         for profile in batch:
             cmd = f'start msedge --start-maximized --profile-directory="{profile.edge_profile_directory}"'
@@ -105,51 +114,69 @@ class Worker(QThread):
         self.log_signal.emit("Waiting for browsers to load...")
         time.sleep(5) 
 
-        windows = [w for w in gw.getAllWindows() if "Edge" in w.title or "Bing" in w.title]
+        all_wins = gw.getAllWindows()
+        windows = []
+        for w in all_wins:
+            t = w.title
+            if "Edge" in t and "Reward" not in t and "Py" not in t and "Visual Studio" not in t:
+                windows.append(w)
+        
         if not windows:
-            self.log_signal.emit("Error: No Edge windows found!")
+            self.log_signal.emit("Error: No valid Edge windows found!")
             return
 
-        self.log_signal.emit(f"Starting Fast Loop: {self.search_count} rounds")
+        total_searches_needed = int(self.search_count / 3)
+        self.log_signal.emit(f"Target: {self.search_count} Pts ({total_searches_needed} searches)")
 
-        for i in range(self.search_count):
+        for i in range(total_searches_needed):
             if not self.is_running: break
             for win in windows:
                 try:
                     win.activate()
-                    word = random.choice(self.word_list) + str(random.randint(1, 999))
+                    word = self.r.word()
                     pyautogui.hotkey('ctrl', 'e')
                     pyautogui.write(word)
                     pyautogui.press('enter')
                     time.sleep(1)
                 except Exception: pass 
-            self.log_signal.emit(f"Batch Progress: {i+1}/{self.search_count}")
+            self.log_signal.emit(f"Progress: {i+1}/{total_searches_needed}")
 
     def run_sequential_scan(self, batch, session):
         for profile in batch:
             if not self.is_running: break
             self.log_signal.emit(f"Scanning: {profile.name}")
             
-            cmd = f'start msedge --start-maximized --profile-directory="{profile.edge_profile_directory}"'
+            cmd = f'start msedge --start-maximized --profile-directory="{profile.edge_profile_directory}" "{self.scan_url}"'
             subprocess.Popen(cmd, shell=True)
-            time.sleep(4)
             
-            self.navigate_to_url(self.scan_url)
-            self.log_signal.emit(f"Waiting for points...")
+            self.log_signal.emit(f"Waiting for page load...")
+            time.sleep(5) 
+            
             found_points = None
+            found_mem = None
+            
+            # Simple retry loop (Single Pass Logic)
             for attempt in range(15):
                 if not self.is_running: break
-                points = self.capture_points_ocr()
+                
+                points, mem = self.capture_dashboard_data()
+                
                 if points is not None:
                     found_points = points
+                    if mem: found_mem = mem
                     break
-                time.sleep(2)
+                time.sleep(1.5)
             
             if found_points is not None:
                 profile.available_points = found_points
+                final_mem = found_mem if found_mem else "Member"
+                
+                try: profile.membership = MembershipLevel(final_mem)
+                except: profile.membership = MembershipLevel.Member
+
                 session.commit()
-                self.card_update_signal.emit(profile.id, found_points)
-                self.log_signal.emit(f"[{profile.name}] Success: {found_points}")
+                self.card_update_signal.emit(profile.id, found_points, final_mem)
+                self.log_signal.emit(f"[{profile.name}] Success: {found_points} Pts | {final_mem}")
             else:
                 self.log_signal.emit(f"[{profile.name}] Failed: Timed out")
             
@@ -160,23 +187,37 @@ class Worker(QThread):
         try: subprocess.run(["taskkill", "/IM", "msedge.exe", "/F"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except: pass
 
-    def navigate_to_url(self, url):
-        pyautogui.hotkey('ctrl', 'l')
-        time.sleep(0.5)
-        pyautogui.write(url)
-        pyautogui.press('enter')
-
-    def capture_points_ocr(self):
+    def capture_dashboard_data(self):
         try:
             screenshot = pyautogui.screenshot()
             frame = np.array(screenshot)
             gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
-            text = pytesseract.image_to_string(gray, config='--psm 6')
-            match = re.search(r"Available points[^\d]*(\d[\d,]*)", text, re.IGNORECASE)
-            if match: return int(match.group(1).replace(",", ""))
-            return None
+            
+            # Basic OCR (No fancy thresholding/resizing)
+            custom_config = r'--psm 6' 
+            text = pytesseract.image_to_string(gray, config=custom_config)
+            
+            points = self._parse_points(text)
+            membership = self._parse_membership(text)
+            return points, membership
+
         except Exception:
-            # DO NOT PRINT HERE
-            return None
+            return None, None
+
+    def _parse_points(self, text):
+        # The classic, reliable regex
+        match = re.search(r"Available points[^\d]*(\d[\d,]*)", text, re.IGNORECASE)
+        if match:
+            try:
+                return int(match.group(1).replace(",", ""))
+            except:
+                pass
+        return None
+
+    def _parse_membership(self, text):
+        if re.search(r"\bGold\b", text, re.IGNORECASE) or "Level 2" in text: return "Gold"
+        if re.search(r"\bSilver\b", text, re.IGNORECASE) or "Level 1" in text: return "Silver"
+        if "Member" in text: return "Member"
+        return None
 
     def stop(self): self.is_running = False

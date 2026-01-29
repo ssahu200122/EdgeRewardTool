@@ -16,8 +16,7 @@ from ui_components import ProfileCard
 from worker import Worker
 from settings_manager import SettingsManager 
 
-# --- FIX 1: SILENCE PRINT STATEMENTS ---
-# This prevents "OSError: Bad file descriptor" crashes in --noconsole mode
+# --- SILENCE PRINT STATEMENTS ---
 class NullWriter:
     def write(self, text): pass
     def flush(self): pass
@@ -25,65 +24,15 @@ class NullWriter:
 if sys.stdout is None: sys.stdout = NullWriter()
 if sys.stderr is None: sys.stderr = NullWriter()
 
-class SettingsDialog(QDialog):
-    def __init__(self, current_min, current_max, current_w, current_h, current_url, is_on_top, current_font_size, resize_callback, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("App Settings")
-        self.resize(400, 450)
-        self.resize_callback = resize_callback 
-        self.setStyleSheet("""
-            QDialog { background-color: #252526; color: white; }
-            QLabel { font-size: 13px; font-weight: bold; color: #ddd; }
-            QSpinBox { background-color: #333; border: 2px solid #555; border-radius: 6px; padding: 6px; color: white; font-size: 14px; font-weight: bold; }
-            QLineEdit { background-color: #333; border: 2px solid #555; border-radius: 6px; padding: 6px; color: #00e676; font-family: 'Consolas', monospace; }
-            QCheckBox { spacing: 8px; color: #ddd; font-weight: bold; }
-            QCheckBox::indicator { width: 18px; height: 18px; border-radius: 4px; border: 2px solid #555; background-color: #333; }
-            QCheckBox::indicator:checked { background-color: #0e639c; border-color: #0e639c; }
-            QGroupBox { border: 1px solid #444; border-radius: 6px; margin-top: 10px; font-weight: bold; color: #aaa; }
-            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }
-            QPushButton { background-color: #0e639c; color: white; border: none; padding: 8px 20px; border-radius: 4px; font-weight: bold; }
-            QPushButton:hover { background-color: #1177bb; }
-        """)
-        layout = QVBoxLayout(self); layout.setSpacing(15)
-        
-        grp_random = QGroupBox("Search Randomization")
-        form_rnd = QFormLayout(grp_random); form_rnd.setSpacing(10)
-        def to_mult_3(v): return int(v / 3) * 3
-        self.spin_min = QSpinBox(); self.spin_min.setRange(3, 300); self.spin_min.setSingleStep(3); self.spin_min.setValue(to_mult_3(current_min))
-        self.spin_max = QSpinBox(); self.spin_max.setRange(3, 300); self.spin_max.setSingleStep(3); self.spin_max.setValue(to_mult_3(current_max))
-        form_rnd.addRow("Minimum:", self.spin_min); form_rnd.addRow("Maximum:", self.spin_max); layout.addWidget(grp_random)
+# --- HELPER: RESOURCE PATH FOR ASSETS ---
+def resource_path(relative_path):
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
 
-        grp_win = QGroupBox("Window & Display")
-        form_win = QFormLayout(grp_win); form_win.setSpacing(10)
-        self.spin_w = QSpinBox(); self.spin_w.setRange(400, 2000); self.spin_w.setSingleStep(10); self.spin_w.setValue(current_w)
-        self.spin_w.valueChanged.connect(self.trigger_resize)
-        self.spin_h = QSpinBox(); self.spin_h.setRange(200, 1500); self.spin_h.setSingleStep(10); self.spin_h.setValue(current_h)
-        self.spin_h.valueChanged.connect(self.trigger_resize)
-        
-        self.spin_font = QSpinBox(); self.spin_font.setRange(8, 24); self.spin_font.setValue(current_font_size)
-        
-        form_win.addRow("Width (px):", self.spin_w); form_win.addRow("Height (px):", self.spin_h)
-        form_win.addRow("Font Size:", self.spin_font)
-        layout.addWidget(grp_win)
-
-        grp_scan = QGroupBox("General & Scanner")
-        form_scan = QFormLayout(grp_scan)
-        self.edit_url = QLineEdit(current_url)
-        form_scan.addRow("Scan URL:", self.edit_url)
-        self.chk_ontop = QCheckBox("Keep Window Always on Top")
-        self.chk_ontop.setChecked(is_on_top)
-        form_scan.addRow("", self.chk_ontop)
-        layout.addWidget(grp_scan)
-        
-        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        btns.accepted.connect(self.accept); btns.rejected.connect(self.reject); layout.addWidget(btns)
-
-    def trigger_resize(self):
-        if self.resize_callback: self.resize_callback(self.spin_w.value(), self.spin_h.value())
-    
-    def get_values(self): 
-        return (int(self.spin_min.value()/3)*3, int(self.spin_max.value()/3)*3, self.edit_url.text().strip(), self.chk_ontop.isChecked(), self.spin_font.value())
-
+# --- RESTORED FILTER DIALOG ---
 class FilterDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -106,32 +55,63 @@ class FilterDialog(QDialog):
         btns.accepted.connect(self.accept); btns.rejected.connect(self.reject); layout.addWidget(btns)
     def get_range(self): return self.spin_min.value(), self.spin_max.value()
 
-WINDOW_STYLE = """
-    QMainWindow { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1e1e1e, stop:1 #181818); }
-    QMenuBar { background-color: #2b2b2b; color: #ddd; }
-    QMenuBar::item { padding: 5px 10px; background-color: transparent; }
-    QMenuBar::item:selected { background-color: #3e3e42; }
-    QMenu { background-color: #252526; color: white; border: 1px solid #444; }
-    QMenu::item { padding: 5px 20px; }
-    QMenu::item:selected { background-color: #0e639c; }
-    QToolBar { background-color: #252526; border-bottom: 2px solid #0e639c; spacing: 5px; padding: 5px; }
-    QToolButton { background-color: #333; color: #f0f0f0; border-radius: 6px; padding: 6px 12px; font-weight: bold; font-family: 'Segoe UI'; }
-    QToolButton:hover { background-color: #444; border: 1px solid #555; }
-    QToolButton:pressed { background-color: #0e639c; color: white; }
-    QSpinBox { background-color: #2b2b2b; border: 2px solid #3e3e42; border-radius: 6px; padding: 2px 5px; font-family: 'Segoe UI'; font-size: 13px; font-weight: bold; color: white; min-width: 40px; }
-    QSpinBox:hover { border-color: #0e639c; }
-    QSpinBox::up-button, QSpinBox::down-button { background-color: transparent; border: none; width: 16px; margin: 1px; }
-    QSpinBox::up-button:hover, QSpinBox::down-button:hover { background-color: #444; border-radius: 4px; }
-    QSpinBox::up-arrow { width: 8px; height: 8px; border-left: 4px solid none; border-right: 4px solid none; border-bottom: 4px solid #aaa; }
-    QSpinBox::down-arrow { width: 8px; height: 8px; border-left: 4px solid none; border-right: 4px solid none; border-top: 4px solid #aaa; }
-    QLabel { color: #ccc; font-family: 'Segoe UI'; font-weight: 500; }
-    QScrollArea { border: none; background: transparent; }
-    QWidget#ScrollContents { background: transparent; }
-    QScrollBar:vertical { border: none; background: #1e1e1e; width: 10px; }
-    QScrollBar::handle:vertical { background: #444; min-height: 20px; border-radius: 5px; }
-    QStatusBar { background-color: #181818; color: #666; border-top: 1px solid #333; }
-    QLabel#StatusRight { color: #00e676; font-weight: bold; padding-right: 15px; }
-"""
+class SettingsDialog(QDialog):
+    def __init__(self, current_min, current_max, current_w, current_h, current_url, is_on_top, current_font_size, resize_callback, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("App Settings")
+        self.resize(400, 450)
+        self.resize_callback = resize_callback 
+        self.setStyleSheet("""
+            QDialog { background-color: #252526; color: white; }
+            QLabel { font-size: 13px; font-weight: bold; color: #ddd; }
+            QSpinBox { 
+                background-color: #333; border: 2px solid #555; border-radius: 6px; padding: 6px; color: white; font-size: 14px; font-weight: bold; 
+            }
+            QLineEdit { background-color: #333; border: 2px solid #555; border-radius: 6px; padding: 6px; color: #00e676; font-family: 'Consolas', monospace; }
+            QCheckBox { spacing: 8px; color: #ddd; font-weight: bold; }
+            QCheckBox::indicator { width: 18px; height: 18px; border-radius: 4px; border: 2px solid #555; background-color: #333; }
+            QCheckBox::indicator:checked { background-color: #0e639c; border-color: #0e639c; }
+            QGroupBox { border: 1px solid #444; border-radius: 6px; margin-top: 10px; font-weight: bold; color: #aaa; }
+            QPushButton { background-color: #0e639c; color: white; border: none; padding: 8px 20px; border-radius: 4px; font-weight: bold; }
+            QPushButton:hover { background-color: #1177bb; }
+        """)
+        layout = QVBoxLayout(self); layout.setSpacing(15)
+        
+        grp_random = QGroupBox("Search Randomization")
+        form_rnd = QFormLayout(grp_random); form_rnd.setSpacing(10)
+        def to_mult_3(v): return int(v / 3) * 3
+        self.spin_min = QSpinBox(); self.spin_min.setRange(3, 300); self.spin_min.setSingleStep(3); self.spin_min.setValue(to_mult_3(current_min))
+        self.spin_max = QSpinBox(); self.spin_max.setRange(3, 300); self.spin_max.setSingleStep(3); self.spin_max.setValue(to_mult_3(current_max))
+        form_rnd.addRow("Minimum:", self.spin_min); form_rnd.addRow("Maximum:", self.spin_max); layout.addWidget(grp_random)
+
+        grp_win = QGroupBox("Window & Display")
+        form_win = QFormLayout(grp_win); form_win.setSpacing(10)
+        self.spin_w = QSpinBox(); self.spin_w.setRange(400, 2000); self.spin_w.setSingleStep(10); self.spin_w.setValue(current_w)
+        self.spin_w.valueChanged.connect(self.trigger_resize)
+        self.spin_h = QSpinBox(); self.spin_h.setRange(200, 1500); self.spin_h.setSingleStep(10); self.spin_h.setValue(current_h)
+        self.spin_h.valueChanged.connect(self.trigger_resize)
+        self.spin_font = QSpinBox(); self.spin_font.setRange(8, 24); self.spin_font.setValue(current_font_size)
+        form_win.addRow("Width (px):", self.spin_w); form_win.addRow("Height (px):", self.spin_h)
+        form_win.addRow("Font Size:", self.spin_font)
+        layout.addWidget(grp_win)
+
+        grp_scan = QGroupBox("General & Scanner")
+        form_scan = QFormLayout(grp_scan)
+        self.edit_url = QLineEdit(current_url)
+        form_scan.addRow("Scan URL:", self.edit_url)
+        self.chk_ontop = QCheckBox("Keep Window Always on Top")
+        self.chk_ontop.setChecked(is_on_top)
+        form_scan.addRow("", self.chk_ontop)
+        layout.addWidget(grp_scan)
+        
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.accepted.connect(self.accept); btns.rejected.connect(self.reject); layout.addWidget(btns)
+
+    def trigger_resize(self):
+        if self.resize_callback: self.resize_callback(self.spin_w.value(), self.spin_h.value())
+    
+    def get_values(self): 
+        return (int(self.spin_min.value()/3)*3, int(self.spin_max.value()/3)*3, self.edit_url.text().strip(), self.chk_ontop.isChecked(), self.spin_font.value())
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -148,7 +128,7 @@ class MainWindow(QMainWindow):
         self.current_font_size = self.settings.get("font_size", 13)
         self.apply_on_top_mode()
 
-        self.setStyleSheet(WINDOW_STYLE)
+        self.apply_styles()
         self.move_to_bottom_right()
         self.controller = ProfileController()
         self.cards = {} 
@@ -161,6 +141,100 @@ class MainWindow(QMainWindow):
         self.init_ui()
         self.load_profile_data()
         self.randomize_search_box()
+
+    def apply_styles(self):
+        # Resolve paths dynamically and force forward slashes for CSS
+        img_plus = resource_path("assets/plus.png").replace("\\", "/")
+        img_minus = resource_path("assets/minus.png").replace("\\", "/")
+
+        self.setStyleSheet(f"""
+            QMainWindow {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1e1e1e, stop:1 #181818); }}
+            QMenuBar {{ background-color: #2b2b2b; color: #ddd; }}
+            QMenuBar::item {{ padding: 5px 10px; background-color: transparent; }}
+            QMenuBar::item:selected {{ background-color: #3e3e42; }}
+            QMenu {{ background-color: #252526; color: white; border: 1px solid #444; }}
+            QMenu::item {{ padding: 5px 20px; }}
+            QMenu::item:selected {{ background-color: #0e639c; }}
+            
+            QToolBar {{ background-color: #252526; border-bottom: 2px solid #0e639c; spacing: 10px; padding: 5px; }}
+            QToolButton {{ background-color: transparent; color: #f0f0f0; border-radius: 6px; padding: 6px; margin: 2px; }}
+            QToolButton:hover {{ background-color: #444; border: 1px solid #555; }}
+            QToolButton:pressed {{ background-color: #0e639c; color: white; }}
+
+            QCheckBox {{ color: #ccc; font-weight: bold; spacing: 5px; }}
+            QCheckBox::indicator {{ width: 16px; height: 16px; border: 1px solid #555; border-radius: 3px; background: #333; }}
+            QCheckBox::indicator:checked {{ background-color: #0e639c; border-color: #0e639c; }}
+
+            /* --- COMPACT PILL SHAPE SPINBOX --- */
+            QSpinBox {{
+                background-color: #ffffff;
+                color: #5856D6;         /* Purple Text */
+                font-family: 'Segoe UI';
+                font-weight: bold;
+                font-size: 13px;        
+                border-radius: 15px;    /* Half of height (30px) */
+                padding: 0px 30px;      /* Reduced padding */
+                min-height: 30px;       /* Compact Height */
+                max-height: 30px;
+                min-width: 80px;        
+                max-width: 100px;
+                selection-background-color: transparent;
+                selection-color: #5856D6;
+            }}
+
+            /* DOWN BUTTON (Left Purple Circle) */
+            QSpinBox::down-button {{
+                subcontrol-origin: border;
+                subcontrol-position: center left;
+                width: 30px;
+                height: 30px;
+                background-color: #4b49b6; 
+                border-top-left-radius: 15px;
+                border-bottom-left-radius: 15px;
+                border: none;
+            }}
+            QSpinBox::down-button:hover {{ background-color: #3d3b94; }}
+            QSpinBox::down-button:pressed {{ background-color: #2a2970; }}
+
+            /* UP BUTTON (Right Purple Circle) */
+            QSpinBox::up-button {{
+                subcontrol-origin: border;
+                subcontrol-position: center right;
+                width: 30px;
+                height: 30px;
+                background-color: #4b49b6; 
+                border-top-right-radius: 15px;
+                border-bottom-right-radius: 15px;
+                border: none;
+            }}
+            QSpinBox::up-button:hover {{ background-color: #3d3b94; }}
+            QSpinBox::up-button:pressed {{ background-color: #2a2970; }}
+
+            /* ARROWS - Using Assets from Folder */
+            QSpinBox::up-arrow, QSpinBox::down-arrow {{
+                width: 16px;
+                height: 16px;
+                image: none;
+            }}
+            
+            /* Plus Icon */
+            QSpinBox::up-arrow {{
+                image: url("{img_plus}");
+            }}
+
+            /* Minus Icon */
+            QSpinBox::down-arrow {{
+                 image: url("{img_minus}");
+            }}
+
+            /* SCROLLBAR & OTHERS */
+            QScrollArea {{ border: none; background: transparent; }}
+            QWidget#ScrollContents {{ background: transparent; }}
+            QScrollBar:vertical {{ border: none; background: #1e1e1e; width: 10px; }}
+            QScrollBar::handle:vertical {{ background: #444; min-height: 20px; border-radius: 5px; }}
+            QStatusBar {{ background-color: #181818; color: #666; border-top: 1px solid #333; }}
+            QLabel#StatusRight {{ color: #00e676; font-weight: bold; padding-right: 15px; }}
+        """)
 
     def move_to_bottom_right(self):
         screen = QApplication.primaryScreen()
@@ -201,23 +275,75 @@ class MainWindow(QMainWindow):
 
         self.toolbar = QToolBar("Main Actions")
         self.toolbar.setMovable(True); self.toolbar.setFloatable(True)
-        self.toolbar.setIconSize(QSize(20, 20))
+        self.toolbar.setIconSize(QSize(28, 28)) 
         self.addToolBar(Qt.TopToolBarArea, self.toolbar)
 
-        self.act_start = QAction("▶ Start", self); self.act_start.triggered.connect(self.on_start_clicked); self.toolbar.addAction(self.act_start)
-        self.act_scan = QAction("👁 Scan", self); self.act_scan.triggered.connect(self.on_scan_clicked); self.toolbar.addAction(self.act_scan)
-        self.act_launch = QAction("🚀 Launch", self); self.act_launch.triggered.connect(self.on_launch_clicked); self.toolbar.addAction(self.act_launch)
-        self.act_stop = QAction("⏹ Stop", self); self.act_stop.triggered.connect(self.on_stop_clicked); self.toolbar.addAction(self.act_stop)
-        
+        # ICONS
+        self.act_start = QAction(QIcon(resource_path("assets/start.png")), "", self); self.act_start.setToolTip("Start Grinding"); self.act_start.triggered.connect(self.on_start_clicked); self.toolbar.addAction(self.act_start)
+        self.act_scan = QAction(QIcon(resource_path("assets/scan.png")), "", self); self.act_scan.setToolTip("Scan Points"); self.act_scan.triggered.connect(self.on_scan_clicked); self.toolbar.addAction(self.act_scan)
+        self.act_launch = QAction(QIcon(resource_path("assets/launch.png")), "", self); self.act_launch.setToolTip("Launch Profiles"); self.act_launch.triggered.connect(self.on_launch_clicked); self.toolbar.addAction(self.act_launch)
+        self.act_stop = QAction(QIcon(resource_path("assets/stop.png")), "", self); self.act_stop.setToolTip("Stop Process"); self.act_stop.triggered.connect(self.on_stop_clicked); self.toolbar.addAction(self.act_stop)
         self.toolbar.addSeparator()
-        self.act_kill = QAction("❌ Close All", self); self.act_kill.setToolTip("Force Close All Edge Browsers"); self.act_kill.triggered.connect(self.on_kill_clicked); self.toolbar.addAction(self.act_kill)
-        self.act_detect = QAction("🔍 Auto Detect", self); self.act_detect.setToolTip("Scan PC for new Edge Profiles"); self.act_detect.triggered.connect(self.on_detect_clicked); self.toolbar.addAction(self.act_detect)
+        self.act_kill = QAction(QIcon(resource_path("assets/close.png")), "", self); self.act_kill.setToolTip("Force Close All Edge Browsers"); self.act_kill.triggered.connect(self.on_kill_clicked); self.toolbar.addAction(self.act_kill)
+        self.act_detect = QAction(QIcon(resource_path("assets/search.png")), "", self); self.act_detect.setToolTip("Scan PC for new Edge Profiles"); self.act_detect.triggered.connect(self.on_detect_clicked); self.toolbar.addAction(self.act_detect)
 
         self.toolbar.addSeparator()
-        self.toolbar.addWidget(QLabel("Parallel:"))
-        self.spin_batch = QSpinBox(); self.spin_batch.setRange(1, 15); self.spin_batch.setToolTip("Parallel Browsers"); self.spin_batch.setValue(self.settings.get("parallel_browsers", 5)); self.toolbar.addWidget(self.spin_batch)
-        self.toolbar.addWidget(QLabel("Searches:"))
-        self.spin_search = QSpinBox(); self.spin_search.setRange(3, 300); self.spin_search.setSingleStep(3); self.spin_search.setToolTip("Searches per profile"); self.toolbar.addWidget(self.spin_search)
+        
+        # --- PARALLEL WIDGET GROUP (Label on Top) ---
+        container_batch = QWidget()
+        layout_batch = QVBoxLayout(container_batch)
+        layout_batch.setContentsMargins(0, 0, 0, 0)
+        layout_batch.setSpacing(1)
+        layout_batch.setAlignment(Qt.AlignCenter)
+        
+        lbl_batch = QLabel("Parallel")
+        lbl_batch.setAlignment(Qt.AlignCenter)
+        lbl_batch.setStyleSheet("color: #ccc; font-size: 11px; font-weight: bold; margin-bottom: 2px;")
+        
+        self.spin_batch = QSpinBox()
+        self.spin_batch.setRange(1, 15)
+        self.spin_batch.setToolTip("Parallel Browsers")
+        self.spin_batch.setValue(self.settings.get("parallel_browsers", 5))
+        self.spin_batch.setAlignment(Qt.AlignCenter)
+        
+        layout_batch.addWidget(lbl_batch)
+        layout_batch.addWidget(self.spin_batch)
+        self.toolbar.addWidget(container_batch)
+        
+        # --- POINTS WIDGET GROUP (Label on Top) ---
+        container_search = QWidget()
+        layout_search = QVBoxLayout(container_search)
+        layout_search.setContentsMargins(5, 0, 5, 0) # Little extra side spacing
+        layout_search.setSpacing(1)
+        layout_search.setAlignment(Qt.AlignCenter)
+        
+        lbl_search = QLabel("Points")
+        lbl_search.setAlignment(Qt.AlignCenter)
+        lbl_search.setStyleSheet("color: #ccc; font-size: 11px; font-weight: bold; margin-bottom: 2px;")
+        
+        self.spin_search = QSpinBox()
+        self.spin_search.setRange(3, 300)
+        self.spin_search.setSingleStep(3)
+        self.spin_search.setToolTip("Total Points (1 search = 3 pts)")
+        self.spin_search.setAlignment(Qt.AlignCenter)
+        
+        layout_search.addWidget(lbl_search)
+        layout_search.addWidget(self.spin_search)
+        self.toolbar.addWidget(container_search)
+        
+        self.toolbar.addSeparator()
+        
+        # --- NEW OPTIONS ---
+        self.chk_update_status = QCheckBox("Scan")
+        self.chk_update_status.setToolTip("Scan points after searching?")
+        self.chk_update_status.setChecked(True)
+        self.toolbar.addWidget(self.chk_update_status)
+
+        self.chk_shutdown = QCheckBox("Off")
+        self.chk_shutdown.setToolTip("Shutdown PC when done?")
+        self.chk_shutdown.setChecked(False)
+        self.toolbar.addWidget(self.chk_shutdown)
+        
         empty = QWidget(); empty.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding); self.toolbar.addWidget(empty)
         
         central = QWidget(); self.setCentralWidget(central)
@@ -242,7 +368,7 @@ class MainWindow(QMainWindow):
 
     def set_launch_active_style(self, active=True):
         widget = self.toolbar.widgetForAction(self.act_launch)
-        if widget: widget.setStyleSheet("QToolButton { background-color: #2e7d32; color: white; border: 1px solid #1b5e20; } QToolButton:hover { background-color: #388e3c; }" if active else "")
+        if widget: widget.setStyleSheet("QToolButton { background-color: #2e7d32; border: 1px solid #1b5e20; } QToolButton:hover { background-color: #388e3c; }" if active else "")
 
     def launch_single_profile(self, profile):
         self.log(f"Launching {profile.name}...")
@@ -359,19 +485,23 @@ class MainWindow(QMainWindow):
 
     def on_batch_launched(self):
         self.launch_batch_index += 1; batch_size = self.spin_batch.value(); start = self.launch_batch_index * batch_size
-        if start < len(self.launch_ids): self.act_launch.setText(f"🚀 Launch Batch {self.launch_batch_index + 1}")
+        if start < len(self.launch_ids): 
+            self.log(f"Ready for Batch {self.launch_batch_index + 1}")
         else: self.reset_launch_state(); self.log("Done. All profiles launched.")
         self.act_start.setEnabled(True); self.act_scan.setEnabled(True); self.act_launch.setEnabled(True); self.worker = None
 
     def reset_launch_state(self):
-        self.launch_batch_index = 0; self.launch_ids = []; self.act_launch.setText("🚀 Launch"); self.set_launch_active_style(False)
+        self.launch_batch_index = 0; self.launch_ids = []; self.set_launch_active_style(False)
 
     def start_worker(self, mode):
         if self.worker and self.worker.isRunning(): return
         ids = [pid for pid, c in self.cards.items() if c.checkbox.isChecked()]
         if not ids: self.log("No selection!"); return
-        if mode == "start": self.randomize_search_box()
-        self.worker = Worker(mode, ids, self.spin_batch.value(), self.spin_search.value(), scan_url=self.scan_url)
+        
+        # --- PASS CHECKBOX STATE TO WORKER ---
+        should_update = self.chk_update_status.isChecked()
+        
+        self.worker = Worker(mode, ids, self.spin_batch.value(), self.spin_search.value(), scan_url=self.scan_url, update_after=should_update)
         self.worker.log_signal.connect(self.log); self.worker.card_update_signal.connect(self.update_card_ui)
         self.worker.finished_signal.connect(self.on_worker_finished); self.worker.start()
         self.act_start.setEnabled(False); self.act_scan.setEnabled(False); self.act_launch.setEnabled(False)
@@ -381,9 +511,25 @@ class MainWindow(QMainWindow):
     def on_stop_clicked(self): 
         if self.worker: self.worker.stop()
         self.reset_launch_state(); self.log("Stopping...")
-    def update_card_ui(self, pid, pts): 
-        if pid in self.cards: self.cards[pid].points_label.setText(f"{pts:,}")
-    def on_worker_finished(self): self.log("Done."); self.act_start.setEnabled(True); self.act_scan.setEnabled(True); self.act_launch.setEnabled(True); self.worker = None
+    def update_card_ui(self, pid, pts, membership): 
+        if pid in self.cards: 
+            card = self.cards[pid]
+            card.points_label.setText(f"{pts:,}")
+            
+            # --- UPDATE MEMBERSHIP BADGE DYNAMICALLY ---
+            if membership and membership != card.current_membership:
+                card.current_membership = membership
+                card.badge_btn.setText(membership)
+                card.update_badge_style()
+        
+    def on_worker_finished(self): 
+        self.log("Done.")
+        self.act_start.setEnabled(True); self.act_scan.setEnabled(True); self.act_launch.setEnabled(True); self.worker = None
+        
+        # --- SHUTDOWN LOGIC ---
+        if self.chk_shutdown.isChecked():
+            self.log("Shutting down in 60s...")
+            os.system("shutdown /s /t 60")
     
     def closeEvent(self, e):
         SettingsManager.save({
