@@ -155,7 +155,7 @@ class Worker(QThread):
             found_points = None
             found_mem = None
             
-            # Simple retry loop (Single Pass Logic)
+            # Basic Retry Loop (Single Pass)
             for attempt in range(15):
                 if not self.is_running: break
                 
@@ -170,7 +170,6 @@ class Worker(QThread):
             if found_points is not None:
                 profile.available_points = found_points
                 final_mem = found_mem if found_mem else "Member"
-                
                 try: profile.membership = MembershipLevel(final_mem)
                 except: profile.membership = MembershipLevel.Member
 
@@ -193,7 +192,7 @@ class Worker(QThread):
             frame = np.array(screenshot)
             gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
             
-            # Basic OCR (No fancy thresholding/resizing)
+            # Native Resolution (The method that worked best for you)
             custom_config = r'--psm 6' 
             text = pytesseract.image_to_string(gray, config=custom_config)
             
@@ -205,7 +204,7 @@ class Worker(QThread):
             return None, None
 
     def _parse_points(self, text):
-        # The classic, reliable regex
+        # The regex that was working for you
         match = re.search(r"Available points[^\d]*(\d[\d,]*)", text, re.IGNORECASE)
         if match:
             try:
