@@ -143,7 +143,7 @@ class MainWindow(QMainWindow):
         self.launch_ids = []
         self.rnd_min = self.settings.get("search_count_min", 30)
         self.rnd_max = self.settings.get("search_count_max", 45)
-        self.scan_url = self.settings.get("scan_url", "https://rewards.bing.com/pointsbreakdown")
+        self.scan_url = self.settings.get("scan_url", "https://rewards.bing.com/")
         self.init_ui()
         self.load_profile_data()
         self.randomize_search_box()
