@@ -32,7 +32,7 @@ def resource_path(relative_path):
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
-# --- RESTORED FILTER DIALOG ---
+# --- FILTER DIALOG ---
 class FilterDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -55,6 +55,7 @@ class FilterDialog(QDialog):
         btns.accepted.connect(self.accept); btns.rejected.connect(self.reject); layout.addWidget(btns)
     def get_range(self): return self.spin_min.value(), self.spin_max.value()
 
+# --- SETTINGS DIALOG ---
 class SettingsDialog(QDialog):
     def __init__(self, current_min, current_max, current_w, current_h, current_url, is_on_top, current_font_size, resize_callback, parent=None):
         super().__init__(parent)
@@ -90,7 +91,9 @@ class SettingsDialog(QDialog):
         self.spin_w.valueChanged.connect(self.trigger_resize)
         self.spin_h = QSpinBox(); self.spin_h.setRange(200, 1500); self.spin_h.setSingleStep(10); self.spin_h.setValue(current_h)
         self.spin_h.valueChanged.connect(self.trigger_resize)
+        
         self.spin_font = QSpinBox(); self.spin_font.setRange(8, 24); self.spin_font.setValue(current_font_size)
+        
         form_win.addRow("Width (px):", self.spin_w); form_win.addRow("Height (px):", self.spin_h)
         form_win.addRow("Font Size:", self.spin_font)
         layout.addWidget(grp_win)
@@ -118,9 +121,12 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Rewards Bot Pro")
         self.settings = SettingsManager.load()
+        
+        # --- LOAD WINDOW SETTINGS ---
         self.target_w = self.settings.get("window_width", 850)
         self.target_h = self.settings.get("window_height", 400)
         self.resize(self.target_w, self.target_h)
+        
         if os.path.exists("logo.png"): self.setWindowIcon(QIcon("logo.png"))
         elif os.path.exists("logo.ico"): self.setWindowIcon(QIcon("logo.ico"))
         
@@ -143,7 +149,6 @@ class MainWindow(QMainWindow):
         self.randomize_search_box()
 
     def apply_styles(self):
-        # Resolve paths dynamically and force forward slashes for CSS
         img_plus = resource_path("assets/plus.png").replace("\\", "/")
         img_minus = resource_path("assets/minus.png").replace("\\", "/")
 
@@ -157,8 +162,8 @@ class MainWindow(QMainWindow):
             QMenu::item:selected {{ background-color: #0e639c; }}
             
             QToolBar {{ background-color: #252526; border-bottom: 2px solid #0e639c; spacing: 10px; padding: 5px; }}
-            QToolButton {{ background-color: transparent; color: #f0f0f0; border-radius: 6px; padding: 6px; margin: 2px; }}
-            QToolButton:hover {{ background-color: #444; border: 1px solid #555; }}
+            QToolButton {{ background-color: #444; border: 1px solid #555; color: #f0f0f0; border-radius: 6px; padding: 6px; margin: 2px; }}
+            QToolButton:hover {{ background-color: #230; border: 1px solid #555; }}
             QToolButton:pressed {{ background-color: #0e639c; color: white; }}
 
             QCheckBox {{ color: #ccc; font-weight: bold; spacing: 5px; }}
@@ -313,7 +318,7 @@ class MainWindow(QMainWindow):
         # --- POINTS WIDGET GROUP (Label on Top) ---
         container_search = QWidget()
         layout_search = QVBoxLayout(container_search)
-        layout_search.setContentsMargins(5, 0, 5, 0) # Little extra side spacing
+        layout_search.setContentsMargins(5, 0, 5, 0)
         layout_search.setSpacing(1)
         layout_search.setAlignment(Qt.AlignCenter)
         
@@ -326,6 +331,7 @@ class MainWindow(QMainWindow):
         self.spin_search.setSingleStep(3)
         self.spin_search.setToolTip("Total Points (1 search = 3 pts)")
         self.spin_search.setAlignment(Qt.AlignCenter)
+        self.spin_search.setValue(self.settings.get("last_search_val", 30)) # Restore last search value
         
         layout_search.addWidget(lbl_search)
         layout_search.addWidget(self.spin_search)
@@ -336,12 +342,12 @@ class MainWindow(QMainWindow):
         # --- NEW OPTIONS ---
         self.chk_update_status = QCheckBox("Scan")
         self.chk_update_status.setToolTip("Scan points after searching?")
-        self.chk_update_status.setChecked(True)
+        self.chk_update_status.setChecked(self.settings.get("scan_after_search", True)) # Restore state
         self.toolbar.addWidget(self.chk_update_status)
 
         self.chk_shutdown = QCheckBox("Off")
         self.chk_shutdown.setToolTip("Shutdown PC when done?")
-        self.chk_shutdown.setChecked(False)
+        self.chk_shutdown.setChecked(self.settings.get("shutdown_after", False)) # Restore state
         self.toolbar.addWidget(self.chk_shutdown)
         
         empty = QWidget(); empty.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding); self.toolbar.addWidget(empty)
@@ -532,13 +538,19 @@ class MainWindow(QMainWindow):
             os.system("shutdown /s /t 60")
     
     def closeEvent(self, e):
+        # --- SAVE SETTINGS ON EXIT ---
         SettingsManager.save({
-            "window_width": self.width(), "window_height": self.height(), 
+            "window_width": self.width(), 
+            "window_height": self.height(), 
             "parallel_browsers": self.spin_batch.value(), 
-            "search_count_min": self.rnd_min, "search_count_max": self.rnd_max, 
-            "last_search_val": self.spin_search.value(), "scan_url": self.scan_url,
+            "search_count_min": self.rnd_min, 
+            "search_count_max": self.rnd_max, 
+            "last_search_val": self.spin_search.value(), 
+            "scan_url": self.scan_url,
             "always_on_top": self.is_always_on_top,
-            "font_size": self.current_font_size 
+            "font_size": self.current_font_size,
+            "scan_after_search": self.chk_update_status.isChecked(), # Save Checkbox
+            "shutdown_after": self.chk_shutdown.isChecked()          # Save Checkbox
         })
         self.controller.close(); e.accept()
 
